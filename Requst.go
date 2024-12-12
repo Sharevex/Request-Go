@@ -1,70 +1,96 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"net/http"
 	"os"
+	"os/exec"
+	"net/http"
 	"strings"
+	"regexp"
+	"bufio"
+
 )
 
-func main() {
-	clearScreen()
-	blue := "\033[34m"
-	green := "\033[32m"
-	yellow := "\033[33m"
-	red := "\033[31m"
-	reset := "\033[0m"
+// Function to print colored messages
+func printColored(color, message string) {
+	fmt.Printf("%s%s%s\n", color, message, "\033[0m")
+}
 
-	fmt.Printf("%s[*] Enter the URL: %s", blue, reset)
-	reader := bufio.NewReader(os.Stdin)
-	url, _ := reader.ReadString('\n')
-	url = strings.TrimSpace(url)
-
+func requ(url string) {
 	if url == "" {
-		fmt.Printf("%s[-] Please enter a valid URL%s\n", red, reset)
-		return
+		printColored("\033[31m", "[-] Please enter a valid URL")
+		os.Exit(1)
 	}
 
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+	// Ensure the URL starts with "http://" or "https://"
+	if !strings.HasPrefix(url, "http") {
 		url = "https://" + url
 	}
 
-	checkURL(url, green, yellow, blue, red, reset)
-}
-
-func checkURL(url, green, yellow, blue, red, reset string) {
+	// Make an HTTP request to check the status of the URL
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Printf("%s[-] Could not connect to %s%s\n", red, url, reset)
+		printColored("\033[31m", "[-] Could not connect to "+url)
 		return
 	}
 	defer resp.Body.Close()
 
+	// Handle different status codes
 	switch resp.StatusCode {
 	case 200:
-		fmt.Printf("%s[+] %s is up%s\n", green, url, reset)
+		printColored("\033[32m", "[+] "+url+" is up")
+
+		// Extract domain from the URL
+		re := regexp.MustCompile(`(?:http[s]?://)?([^/]+)`)
+		matches := re.FindStringSubmatch(url)
+		if len(matches) < 2 {
+			printColored("\033[31m", "[-] Invalid URL format")
+			return
+		}
+		domain := matches[1]
+
+		// Run the dig command to get DNS records
+		cmd := exec.Command("dig", domain, "ANY", "+short")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			printColored("\033[31m", "Error occurred while fetching DNS records: "+err.Error())
+			return
+		}
+
+		if len(output) > 0 {
+			printColored("\033[34m", "\nDNS Records for "+domain+":")
+			fmt.Println(string(output))
+		} else {
+			printColored("\033[33m", "[!] No DNS records found for "+domain)
+		}
+
 	case 404:
-		fmt.Printf("%s[-] %s is down%s\n", red, url, reset)
+		printColored("\033[31m", "[-] "+url+" is down")
 	case 403:
-		fmt.Printf("%s[!] %s is blocked%s\n", yellow, url, reset)
-	case 500, 501, 502, 503, 504:
-		fmt.Printf("%s[*] %s server error%s\n", blue, url, reset)
+		printColored("\033[33m", "[!] "+url+" is blocked")
+	case 500, 503, 504, 502, 501:
+		printColored("\033[34m", "[*] "+url+" is not found")
 	case 400:
-		fmt.Printf("%s[-] %s bad request%s\n", red, url, reset)
+		printColored("\033[31m", "[-] "+url+" bad request")
 	case 401:
-		fmt.Printf("%s[!] %s unauthorized%s\n", yellow, url, reset)
+		printColored("\033[33m", "[!] "+url+" unauthorized")
 	case 429:
-		fmt.Printf("%s[!] %s too many requests%s\n", yellow, url, reset)
+		printColored("\033[33m", "[!] "+url+" too many requests")
 	case 301:
-		fmt.Printf("%s[+] %s moved permanently%s\n", green, url, reset)
+		printColored("\033[32m", "[+] "+url+" moved permanently")
 	case 302:
-		fmt.Printf("%s[+] %s temporary redirect%s\n", green, url, reset)
+		printColored("\033[32m", "[+] "+url+" temporary redirect")
 	default:
-		fmt.Printf("%s[*] %s returned status code %d%s\n", blue, url, resp.StatusCode, reset)
+		printColored("\033[31m", "[-] Unexpected status code for "+url)
 	}
 }
 
-func clearScreen() {
-	fmt.Print("\033[H\033[2J")
+func main() {
+	// Read URL from user input
+	fmt.Print("\033[34m[*] Enter the url: \033[0m")
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	url := scanner.Text()
+
+	requ(url)
 }
